@@ -1,0 +1,17 @@
+[Unit]
+Description=Smart Meeting Room IoT Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/smart-meeting-room
+Environment=MQTT_HOST=192.168.0.10
+Environment=MQTT_PORT=1883
+ExecStart=/usr/bin/python3 -m iot_node.main
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

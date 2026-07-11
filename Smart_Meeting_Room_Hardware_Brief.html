@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; line-height: 1.5; margin: 40px; font-size: 14px; }
+  h1 { font-size: 24px; border-bottom: 3px solid #2563eb; padding-bottom: 8px; }
+  h2 { font-size: 18px; color: #1e3a8a; margin-top: 28px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; }
+  h3 { font-size: 14px; margin-top: 18px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 18px 0; font-size: 12.5px; }
+  th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #eff6ff; color: #1e3a8a; }
+  .real { color: #047857; font-weight: 600; }
+  .sim { color: #b45309; font-weight: 600; }
+  .note { background: #f1f5f9; border-left: 4px solid #2563eb; padding: 8px 12px; margin: 10px 0; font-size: 13px; }
+  ul { margin: 6px 0; }
+  code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+  .small { font-size: 12px; color: #475569; }
+</style>
+</head>
+<body>
+
+<h1>Smart Meeting Room — Hardware &amp; Build Brief</h1>
+<p class="small">Reference document for continuing this project (Smart Cities and IoT, Summer 2026). Hand this to any AI assistant or collaborator as starting context.</p>
+
+<h2>1. Project Brief</h2>
+<p>
+A smart meeting room continuously monitors its environment — occupancy, temperature, humidity, CO2, noise, and
+ambient light — and uses an AI planner to decide how to respond: adjusting ventilation, dimming/brightening
+lights, switching heating/cooling, and cutting power to unused devices.
+</p>
+<ul>
+  <li><b>Goal:</b> when occupied → comfortable and healthy; when empty → energy-saving state.</li>
+  <li><b>Planning:</b> live sensor readings are turned into a PDDL problem instance and solved by
+      <b>Fast Downward</b>, which returns an ordered action plan executed step by step.</li>
+  <li><b>Replanning triggers:</b> occupancy change, a sensor crossing a threshold (e.g. CO2 too high,
+      temperature out of comfort range), a periodic 60-second re-evaluation, and a manual override from
+      the dashboard.</li>
+  <li><b>Communication:</b> fully decoupled via an MQTT broker (Mosquitto) — modules only publish/subscribe
+      to topics, never talk to each other directly.</li>
+  <li><b>Modules:</b> <code>iot_node</code> (Pi — sensors/actuators), <code>state_manager</code> (digital twin),
+      <code>problem_generator</code> (state+goal → PDDL), <code>planner</code> (Fast Downward wrapper),
+      <code>executor</code> (runs the plan, requests replans), <code>dashboard</code> (live visualisation +
+      manual control).</li>
+</ul>
+
+<h2>2. Hardware We Have</h2>
+<ul>
+  <li><b>Raspberry Pi 5</b> (Model B Rev 1.1), Debian 13 "trixie"</li>
+  <li><b>GrovePi+ board</b> mounted on the Pi's 40-pin header
+    <div class="note">
+      <b>Important build note:</b> The Pi 5's hardware I2C (RP1 controller, <code>/dev/i2c-1</code>) does not
+      tolerate the GrovePi AVR's I2C clock-stretching. We fixed this with a custom <b>software (bit-banged) I2C</b>
+      implementation using <code>lgpio</code> on GPIO2/3 (<code>~/grove_sw_i2c.py</code>), wired into a patched
+      <code>~/grovepi.py</code>. The GrovePi's onboard ATmega328P firmware was also re-flashed (v1.4.0) via a
+      custom AVR ISP script over GPIO 8/9/10/11, since it shipped with corrupt/missing flash.
+      Any new sensor/actuator code on the Pi must go through this patched <code>grovepi.py</code>
+      (which already provides the standard <code>grovepi</code> API — <code>analogRead</code>,
+      <code>digitalWrite</code>, <code>dht()</code>, etc.) — no further low-level fixes should be needed.
+    </div>
+  </li>
+  <li><b>Sensors (Grove modules + cables):</b>
+    <ul>
+      <li>DHT11 Temperature &amp; Humidity sensor (blue)</li>
+      <li>Light sensor</li>
+      <li>Sound sensor</li>
+      <li>Ultrasonic ranger</li>
+      <li>Button</li>
+    </ul>
+  </li>
+  <li><b>Actuators (Grove modules + cables):</b>
+    <ul>
+      <li>Relay module</li>
+      <li>LED</li>
+    </ul>
+  </li>
+  <li><b>Cabling:</b> standard Grove 4-pin cables (white connectors, male header pins on the GrovePi side) —
+      one per module, connecting to the GrovePi's labelled digital (D), analog (A), or I2C sockets.</li>
+  <li><b>Not available / not used:</b> Aeotec MultiSensor 6 (Z-Wave), Plugwise smart socket (ZigBee),
+      Raspberry Pi Relay Shield, dimmable lamp — all replaced by GrovePi equivalents or simulated (see below).</li>
+  <li><b>In the kit but not wired in (not needed for required scope):</b> rotary angle sensor, buzzer.</li>
+</ul>
+
+<h2>3. Sensors — Real vs. Simulated</h2>
+<table>
+  <tr><th>PDDL Fluent</th><th>Sensor</th><th>Type</th><th>Purpose / Notes</th></tr>
+  <tr>
+    <td><code>temperature</code>, <code>humidity</code></td>
+    <td>DHT11</td>
+    <td class="real">Real</td>
+    <td>Already working end-to-end on the Pi (D4). Feeds comfort-range checks.</td>
+  </tr>
+  <tr>
+    <td><code>light level</code></td>
+    <td>Grove Light Sensor</td>
+    <td class="real">Real</td>
+    <td>Analog port. Drives "dim/brighten lights" decisions.</td>
+  </tr>
+  <tr>
+    <td><code>noise level</code></td>
+    <td>Grove Sound Sensor</td>
+    <td class="real">Real</td>
+    <td>Analog port. Direct match to original proposal.</td>
+  </tr>
+  <tr>
+    <td><code>occupancy count</code> / <code>room occupied</code></td>
+    <td>Ultrasonic Ranger (primary) + Button (manual override)</td>
+    <td class="real">Real</td>
+    <td>Ultrasonic mounted facing the seat/desk: object within ~50cm = occupied. Narrow-beam point sensor,
+        so it's a "seat occupancy" proxy rather than room-wide PIR. Button doubles as the dashboard
+        "manual override" trigger for live replanning demos.</td>
+  </tr>
+  <tr>
+    <td><code>CO2 level</code></td>
+    <td>Software-simulated sensor</td>
+    <td class="sim">Simulated</td>
+    <td>No physical CO2 sensor available. Python module models CO2 rising while occupied and decaying
+        while empty, with an occasional scripted spike for the replanning demo.</td>
+  </tr>
+</table>
+
+<h2>4. Actuators — Real vs. Simulated</h2>
+<table>
+  <tr><th>PDDL Action Effect</th><th>Actuator</th><th>Type</th><th>Purpose / Notes</th></tr>
+  <tr>
+    <td><code>turn on/off ventilation</code> (fan/heater)</td>
+    <td>Grove Relay Module</td>
+    <td class="real">Real</td>
+    <td>Switches a fan or small heater (or just a light/buzzer load for demo purposes). Replaces the
+        Raspberry Pi Relay Shield from the original proposal.</td>
+  </tr>
+  <tr>
+    <td><code>dim lights</code> / <code>brighten lights</code></td>
+    <td>Grove LED (PWM)</td>
+    <td class="real">Real</td>
+    <td>PWM brightness (0–255) stands in for room lighting. Chosen over the study lamp because the lamp
+        has no dimming capability.</td>
+  </tr>
+  <tr>
+    <td><code>activate/deactivate AC</code></td>
+    <td>Simulated AC unit (state machine)</td>
+    <td class="sim">Simulated</td>
+    <td>States: off → cooling → idle → off, etc. Logged and shown on dashboard.</td>
+  </tr>
+  <tr>
+    <td><code>open/close blinds</code></td>
+    <td>Simulated motorized blinds</td>
+    <td class="sim">Simulated</td>
+    <td>Position (0–100% open) shown as a visual element on the dashboard.</td>
+  </tr>
+  <tr>
+    <td><i>(optional, not built)</i> device power control</td>
+    <td>Simulated smart socket</td>
+    <td class="sim">Simulated</td>
+    <td>Replaces the Plugwise/ZigBee socket from the original proposal — a simple on/off toggle on the
+        dashboard representing an "unused device" being powered down.</td>
+  </tr>
+</table>
+
+<h2>5. Wiring / Port Connections (GrovePi+)</h2>
+<p>
+GrovePi+ ports are not interchangeable — the 4-pin Grove cable fits any socket, but each socket is wired
+to a specific function on the onboard ATmega. <b>D2–D8</b> are digital ports (D3/D5/D6 also support PWM),
+<b>A0–A2</b> are analog ports (for variable-voltage sensors), and <b>I2C-1/2/3</b> share one I2C bus
+(not needed for this build).
+</p>
+<table>
+  <tr><th>#</th><th>Module</th><th>Port type needed</th><th>Connect to</th><th><code>grovepi</code> port #</th></tr>
+  <tr>
+    <td>1</td>
+    <td>DHT11 (temp/humidity)</td>
+    <td>Digital</td>
+    <td><b>D4</b> <span class="small">(already connected)</span></td>
+    <td><code>4</code></td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>LED (dim/brighten)</td>
+    <td>Digital + PWM</td>
+    <td><b>D3</b></td>
+    <td><code>3</code></td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>Relay (fan/heater)</td>
+    <td>Digital</td>
+    <td><b>D5</b></td>
+    <td><code>5</code></td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>Ultrasonic ranger (occupancy)</td>
+    <td>Digital</td>
+    <td><b>D7</b></td>
+    <td><code>7</code></td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>Button (manual override)</td>
+    <td>Digital</td>
+    <td><b>D8</b></td>
+    <td><code>8</code></td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>Light sensor</td>
+    <td>Analog</td>
+    <td><b>A0</b></td>
+    <td><code>0</code></td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td>Sound sensor</td>
+    <td>Analog</td>
+    <td><b>A1</b></td>
+    <td><code>1</code></td>
+  </tr>
+</table>
+<p class="small">
+This uses all 7 digital ports and 2 of 3 analog ports. LED is on D3 specifically because it needs PWM for
+true dimming (only D3/D5/D6 on GrovePi+ support <code>analogWrite()</code>). Light/sound sensors must use
+A0–A2 since digital ports have no ADC.
+</p>
+
+<h2>6. Summary — What's Real vs. What's Simulated</h2>
+<ul>
+  <li><b>5 sensors total:</b> 4 real (DHT11, light, sound, ultrasonic+button) + 1 simulated (CO2)</li>
+  <li><b>4 required actuators:</b> 2 real (relay, LED) + 2 simulated (AC state machine, blinds)</li>
+  <li><b>Not wired in:</b> rotary angle sensor, buzzer — not needed for the required scope</li>
+  <li><b>Optional simulated extra:</b> smart-socket device power control</li>
+</ul>
+
+<h2>7. Tech Stack</h2>
+<table>
+  <tr><th>Layer</th><th>Choice</th></tr>
+  <tr><td>IoT node (on Pi 5)</td><td>Python 3, patched <code>grovepi.py</code> + <code>grove_sw_i2c.py</code> (software I2C via <code>lgpio</code>), <code>paho-mqtt</code></td></tr>
+  <tr><td>Message broker</td><td>Mosquitto (MQTT), run via Docker on the laptop</td></tr>
+  <tr><td>State manager / problem generator / executor</td><td>Python 3 services, MQTT clients</td></tr>
+  <tr><td>AI Planner</td><td>PDDL 2.1 domain, Fast Downward (invoked as subprocess), plan serialised to JSON over MQTT</td></tr>
+  <tr><td>Dashboard backend</td><td>Django + Django REST Framework (REST API, optionally Django Channels for live WebSocket updates)</td></tr>
+  <tr><td>Dashboard frontend</td><td>Next.js / React — live sensor panel, health score, world state, active plan view, event log, manual controls</td></tr>
+  <tr><td>Repo</td><td>Single GitHub monorepo; Pi only runs <code>iot_node/</code> (git pull + systemd service), everything else runs on the laptop</td></tr>
+</table>
+
+<h2>8. MQTT Topic Map</h2>
+<ul>
+  <li><code>sensors/{id}</code> — readings published by the Pi (temperature, humidity, light, noise, occupancy, co2)</li>
+  <li><code>actuators/{id}/cmd</code> — commands delivered to the Pi (relay, led)</li>
+  <li><code>planning/problem</code>, <code>planning/plan</code> — PDDL problem instances and resulting plans</li>
+  <li><code>state/current</code> — current world state (digital twin) maintained by state_manager</li>
+  <li><code>events/*</code> — replan triggers (occupancy change, threshold breach, periodic tick, manual override)</li>
+</ul>
+
+<h2>9. Suggested Next Steps</h2>
+<ol>
+  <li>Wire up the 7 modules per the port table in section 5, then run a smoke test reading/writing each port.</li>
+  <li>Extend <code>iot_node</code> to read light/sound/ultrasonic/button and drive relay/LED, publishing to MQTT.</li>
+  <li>Stand up Mosquitto + a minimal state_manager + dashboard MVP showing live sensor data and the health score.</li>
+  <li>Write the PDDL domain (actions, predicates, fluents per the proposal) and wire up problem_generator + Fast Downward.</li>
+  <li>Build the executor and the four replan triggers (occupancy change, threshold breach, 60s tick, manual override).</li>
+  <li>Add simulated AC state machine and blinds, finish dashboard (plan view, event log, manual controls).</li>
+</ol>
+
+</body>
+</html>
