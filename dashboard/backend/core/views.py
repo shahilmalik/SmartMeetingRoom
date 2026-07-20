@@ -9,9 +9,11 @@ from shared import mqtt_topics as topics
 
 from .mqtt_client import store
 from .serializers import (
+    ActuatorTestSerializer,
     LedCommandSerializer,
     ManualOverrideSerializer,
     RelayCommandSerializer,
+    SensorOverrideSerializer,
     SimulatedCommandSerializer,
 )
 
@@ -64,12 +66,30 @@ def led_command(request):
 
 
 @api_view(["POST"])
+def test_command(request):
+    serializer = ActuatorTestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    payload = {"ts": time.time(), **serializer.validated_data}
+    ok = store.publish(topics.actuator_cmd_topic("test"), payload)
+    return _ack(ok, payload)
+
+
+@api_view(["POST"])
 def simulated_command(request):
     serializer = SimulatedCommandSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     actuator = serializer.validated_data["actuator"]
     ok = store.publish(topics.actuator_cmd_topic(actuator), serializer.validated_data)
     return _ack(ok, serializer.validated_data)
+
+
+@api_view(["POST"])
+def sensor_override(request):
+    serializer = SensorOverrideSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    payload = {"ts": time.time(), "values": serializer.validated_data["values"]}
+    ok = store.publish(topics.OVERRIDE_SENSORS, payload, retain=True)
+    return _ack(ok, payload)
 
 
 @api_view(["POST"])

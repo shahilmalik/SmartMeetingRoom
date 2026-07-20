@@ -5,13 +5,13 @@ import { RoomState } from "@/lib/types";
 export default function HealthPanel({ state }: { state: RoomState }) {
   const health = state.health ?? 0;
   const occupied = Boolean(state.occupied);
-  const breaches = state.breaches ?? [];
+  const factors = state.health_factors ?? [];
 
   const healthClass = health >= 80 ? "good" : health >= 50 ? "warn" : "bad";
 
   return (
     <div className="panel">
-      <h2>Room Health</h2>
+      <h2>Productivity Score</h2>
       <div className="health-ring">
         <div className="ring" style={{ ["--val" as string]: String(health) }}>
           <span className="num">{health}</span>
@@ -19,7 +19,7 @@ export default function HealthPanel({ state }: { state: RoomState }) {
         <div style={{ display: "grid", gap: 10 }}>
           <div>
             <span className={`tag ${healthClass}`}>
-              {health >= 80 ? "Healthy" : health >= 50 ? "Degraded" : "Critical"}
+              {health >= 80 ? "Productive" : health >= 50 ? "Degraded" : "Poor"}
             </span>
           </div>
           <div>
@@ -35,28 +35,29 @@ export default function HealthPanel({ state }: { state: RoomState }) {
         </div>
       </div>
 
-      <div style={{ marginTop: 18 }}>
+      <div className="factor-list">
+        {factors.map((f) => (
+          <div className="factor" key={f.label}>
+            <span className={`factor-dot ${f.ok ? "ok" : "bad"}`} />
+            <span className="factor-label">{f.label}</span>
+            <span className="factor-detail">{f.detail}</span>
+            <span className={`factor-delta ${f.ok ? "" : "bad"}`}>
+              {f.ok ? "✓" : `${f.delta}`}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 14 }}>
         <div className="row">
           <span className="k">Active goal</span>
-          <span className="v">{occupied ? "Comfort & health" : "Energy saving"}</span>
-        </div>
-        <div className="row">
-          <span className="k">Threshold breaches</span>
-          <span className="v">
-            {breaches.length === 0 ? (
-              <span className="tag good">None</span>
-            ) : (
-              breaches.map((b) => (
-                <span key={b} className="tag bad" style={{ marginLeft: 4 }}>
-                  {b}
-                </span>
-              ))
-            )}
-          </span>
+          <span className="v">{occupied ? "Comfort & productivity" : "Energy saving"}</span>
         </div>
         <div className="row">
           <span className="k">Light status</span>
-          <span className="v">{state.light_status ?? "unknown"}</span>
+          <span className="v">
+            {state.light_status ?? "unknown"} · {state.daylight ? "☀️ daytime" : "🌙 night"}
+          </span>
         </div>
       </div>
     </div>

@@ -42,6 +42,13 @@ class Executor:
         self.sim = SimulatedActuators()
         self.lock = threading.Lock()
         self.current_plan_ts = None
+        # Room lamp (Plugwise socket) manual latch:
+        #   None      -> the planner controls the lamp automatically
+        #   "on"/"off"-> a human set it; the planner must NOT override it until
+        #                the dashboard sends state "auto" to release it.
+        # This is why a manual "off" now stays off instead of the planner
+        # switching it back on a minute later.
+        self._socket_manual = None
 
     def on_connect(self, client, userdata, flags, rc):
         client.subscribe(topics.PLANNING_PLAN)
@@ -56,6 +63,18 @@ class Executor:
             return
         actuator_id = topics.actuator_id_from_topic(msg.topic)
         if actuator_id in topics.SIMULATED_ACTUATORS:
+            if actuator_id == topics.ACTUATOR_SOCKET:
+                state = str(payload.get("state", "")).lower()
+                if state == "auto":
+                    # Hand the lamp back to the planner (no physical switch now).
+                    self._socket_manual = None
+                    self.publish_progress({"action": "manual-socket-auto"})
+                    return
+                if state in ("on", "off"):
+                    self._socket_manual = state
+                    self.sim.apply({"actuator": "socket", **payload})
+                    self.publish_progress({"action": "manual-socket"})
+                return
             self.sim.apply({"actuator": actuator_id, **payload})
             self.publish_progress({"action": f"manual-{actuator_id}"})
             return
@@ -73,22 +92,29 @@ class Executor:
         actuator = step.get("actuator")
         if actuator == "relay":
             self.send_real("relay", {"state": step.get("state", "off")})
-        elif actuator == "led":
-            self.send_real("led", {"brightness": step.get("brightness", 0)})
         elif actuator in ("ac", "blinds", "socket"):
+            if actuator == "socket" and self._socket_manual is not None:
+                # A human owns the lamp — the planner cannot change it until the
+                # dashboard sends "auto". This is what makes a manual off stick.
+                return
             self.sim.apply(step)
         self.publish_progress(step)
 
     def publish_progress(self, step):
+        snap = {
+            **self.sim.snapshot(),
+            # Who owns the room lamp right now: a human latch or the planner.
+            "socket_mode": "manual" if self._socket_manual is not None else "auto",
+        }
         message = {
             "ts": time.time(),
             "executed": step.get("action"),
-            "simulated": self.sim.snapshot(),
+            "simulated": snap,
         }
         self.client.publish(topics.EVENT_EXECUTED, json.dumps(message))
         self.client.publish(
             topics.STATE_SIMULATED,
-            json.dumps({"ts": time.time(), **self.sim.snapshot()}),
+            json.dumps({"ts": time.time(), **snap}),
             retain=True,
         )
 

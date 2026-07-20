@@ -9,3 +9,12 @@ dist/
 build/
 *.log
 .DS_Store
+
+# Course material & local working docs — not for the public repo
+smart cities practical slides/
+relevant_docs/
+explanation.md
+how_to_run.md
+prepare_for_presentation.md
+sensors_and_actuators.md
+*.tsbuildinfo

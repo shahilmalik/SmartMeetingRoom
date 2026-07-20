@@ -2,12 +2,7 @@
 
 import { useState } from "react";
 import { Actuators, Simulated } from "@/lib/types";
-import {
-  sendLed,
-  sendManualOverride,
-  sendRelay,
-  sendSimulated,
-} from "@/lib/api";
+import { sendManualOverride, sendRelay, sendSimulated } from "@/lib/api";
 
 interface Props {
   actuators: Actuators;
@@ -15,7 +10,6 @@ interface Props {
 }
 
 export default function Controls({ actuators, simulated }: Props) {
-  const [brightness, setBrightness] = useState<number>(actuators.led ?? 0);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function run(key: string, fn: () => Promise<unknown>) {
@@ -30,9 +24,8 @@ export default function Controls({ actuators, simulated }: Props) {
   }
 
   const relayOn = Boolean(actuators.relay);
-  const ac = simulated.ac ?? "off";
   const socket = simulated.socket ?? "off";
-  const blinds = simulated.blinds ?? 0;
+  const socketMode = simulated.socket_mode ?? "auto";
 
   return (
     <div className="panel">
@@ -40,23 +33,7 @@ export default function Controls({ actuators, simulated }: Props) {
       <div className="controls">
         <div className="control-group">
           <div className="title">
-            <span>💡 LED Brightness</span>
-            <span>{brightness}</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={255}
-            value={brightness}
-            onChange={(e) => setBrightness(Number(e.target.value))}
-            onMouseUp={() => run("led", () => sendLed(brightness))}
-            onTouchEnd={() => run("led", () => sendLed(brightness))}
-          />
-        </div>
-
-        <div className="control-group">
-          <div className="title">
-            <span>🌀 Relay (Fan / Heater)</span>
+            <span>🌀 Fan / Heater</span>
           </div>
           <div className="btn-group">
             <button
@@ -78,75 +55,45 @@ export default function Controls({ actuators, simulated }: Props) {
 
         <div className="control-group">
           <div className="title">
-            <span>❄️ AC Unit</span>
-          </div>
-          <div className="btn-group">
-            <button
-              className={`btn ${ac === "cooling" ? "active" : ""}`}
-              onClick={() => run("ac-cool", () => sendSimulated("ac", { state: "cooling" }))}
+            <span>💡 Room Light (Plugwise)</span>
+            <span
+              className={`tag ${socketMode === "manual" ? "warn" : "good"}`}
+              title={
+                socketMode === "manual"
+                  ? "A human holds the lamp — the planner won't touch it until Auto"
+                  : "The AI planner controls the lamp"
+              }
             >
-              Cooling
-            </button>
-            <button
-              className={`btn ${ac === "idle" ? "active" : ""}`}
-              onClick={() => run("ac-idle", () => sendSimulated("ac", { state: "idle" }))}
-            >
-              Idle
-            </button>
-            <button
-              className={`btn ${ac === "off" ? "active" : ""}`}
-              onClick={() => run("ac-off", () => sendSimulated("ac", { state: "off" }))}
-            >
-              Off
-            </button>
-          </div>
-        </div>
-
-        <div className="control-group">
-          <div className="title">
-            <span>🪟 Blinds</span>
-            <span>{blinds}%</span>
-          </div>
-          <div className="btn-group">
-            <button
-              className="btn"
-              onClick={() => run("blinds-open", () => sendSimulated("blinds", { position: 100 }))}
-            >
-              Open
-            </button>
-            <button
-              className="btn"
-              onClick={() => run("blinds-half", () => sendSimulated("blinds", { position: 50 }))}
-            >
-              Half
-            </button>
-            <button
-              className="btn"
-              onClick={() => run("blinds-close", () => sendSimulated("blinds", { position: 0 }))}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-
-        <div className="control-group">
-          <div className="title">
-            <span>🔌 Smart Socket</span>
+              {socketMode === "manual" ? "✋ Manual" : "🤖 Auto"}
+            </span>
           </div>
           <div className="btn-group">
             <button
               className={`btn ${socket === "on" ? "active" : ""}`}
+              disabled={busy === "socket-on"}
               onClick={() => run("socket-on", () => sendSimulated("socket", { state: "on" }))}
             >
               On
             </button>
             <button
               className={`btn ${socket === "off" ? "active" : ""}`}
+              disabled={busy === "socket-off"}
               onClick={() => run("socket-off", () => sendSimulated("socket", { state: "off" }))}
             >
               Off
             </button>
+            <button
+              className="btn"
+              disabled={busy === "socket-auto"}
+              onClick={() => run("socket-auto", () => sendSimulated("socket", { state: "auto" }))}
+            >
+              Auto
+            </button>
           </div>
+          <span className="hint">
+            On/Off hold the lamp manually (planner won’t override). Auto hands
+            control back to the AI planner.
+          </span>
         </div>
 
         <div className="control-group">

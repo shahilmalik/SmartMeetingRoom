@@ -1,14 +1,17 @@
 [Unit]
-Description=Smart Meeting Room IoT Node
+Description=Smart Meeting Room IoT Node (real GrovePi hardware)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/smart-meeting-room
-Environment=MQTT_HOST=192.168.0.10
+User=shahilmalik
+WorkingDirectory=/home/shahilmalik/smart-meeting-room
+# Broker runs on the MacBook; on the iPhone hotspot the Mac is 172.20.10.2.
+Environment=MQTT_HOST=172.20.10.2
 Environment=MQTT_PORT=1883
+Environment=IOT_SIMULATION=0
+Environment=GROVE_HOME=/home/shahilmalik
 ExecStart=/usr/bin/python3 -m iot_node.main
 Restart=always
 RestartSec=5

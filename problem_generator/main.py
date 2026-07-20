@@ -12,7 +12,6 @@ ROOM = "room1"
 COMFORT_TEMP_MIN = 20.0
 COMFORT_TEMP_MAX = 24.0
 CO2_HIGH = 1000.0
-LED_BRIGHT_THRESHOLD = 128
 
 
 class ProblemGenerator:
@@ -21,13 +20,17 @@ class ProblemGenerator:
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.latest_state = None
+        self.latest_simulated = {}
 
     def on_connect(self, client, userdata, flags, rc):
         client.subscribe(topics.STATE_CURRENT)
+        client.subscribe(topics.STATE_SIMULATED)
         client.subscribe(topics.EVENT_OCCUPANCY)
         client.subscribe(topics.EVENT_THRESHOLD)
         client.subscribe(topics.EVENT_TICK)
         client.subscribe(topics.EVENT_MANUAL)
+        client.subscribe(topics.EVENT_OVERRIDE)
+        client.subscribe(topics.EVENT_LIGHT)
 
     def on_message(self, client, userdata, msg):
         try:
@@ -36,6 +39,9 @@ class ProblemGenerator:
             return
         if msg.topic == topics.STATE_CURRENT:
             self.latest_state = payload
+            return
+        if msg.topic == topics.STATE_SIMULATED:
+            self.latest_simulated = payload
             return
         if self.latest_state is not None:
             self.generate_and_publish(msg.topic)
@@ -52,7 +58,6 @@ class ProblemGenerator:
     def build_init(self, state):
         occupied = bool(state.get("occupied"))
         actuators = state.get("actuators", {})
-        led = actuators.get("led", 0)
         relay = actuators.get("relay", 0)
         co2 = state.get("co2")
 
@@ -65,17 +70,29 @@ class ProblemGenerator:
         else:
             facts.append("co2-ok")
 
-        if led >= LED_BRIGHT_THRESHOLD:
-            facts += ["lights-on", "lights-bright"]
-        elif led > 0:
-            facts += ["lights-on", "lights-dim"]
+        # Ambient light comes straight from the sensor's status band.
+        light_status = state.get("light_status", "ok")
+        if light_status == "dark":
+            facts.append("ambient-dark")
+        elif light_status == "bright":
+            facts.append("ambient-bright")
         else:
-            facts.append("lights-off")
+            facts.append("ambient-ok")
+        # The room is "lit" whenever the light sensor is not dark — this is the
+        # ground truth regardless of whether the source is daylight or the lamp.
+        if light_status != "dark":
+            facts.append("room-lit")
 
-        facts.append("ventilation-on" if relay else "ventilation-off")
-        facts.append("ac-cooling" if state.get("ac_cooling") else "ac-off")
-        facts.append("blinds-open" if occupied else "blinds-closed")
-        facts.append("device-powered" if occupied else "device-off")
+        # Daylight availability (time-of-day, overridable) decides whether
+        # opening the blinds would actually help.
+        facts.append("daylight-available" if state.get("daylight") else "no-daylight")
+
+        # Fan/heater = Grove relay; AC + blinds + lamp = simulated actuators.
+        facts.append("fan-on" if relay else "fan-off")
+        facts.append("ac-cooling" if self.latest_simulated.get("ac") == "cooling" else "ac-off")
+        facts.append("blinds-open" if (self.latest_simulated.get("blinds", 0) or 0) > 0 else "blinds-closed")
+        facts.append("lamp-on" if self.latest_simulated.get("socket") == "on" else "lamp-off")
+
         return facts
 
     def build_goal(self, state):

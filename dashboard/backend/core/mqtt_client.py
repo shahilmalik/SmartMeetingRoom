@@ -17,6 +17,10 @@ from shared import mqtt_topics as topics
 MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 EVENT_LIMIT = int(os.environ.get("EVENT_HISTORY_LIMIT", "100"))
+# The Pi node publishes every sensor at IOT_INTERVAL (2s); if the freshest
+# sensor timestamp is older than this, the Pi is considered offline. Retained
+# messages carry their original ts, so a dead node goes offline correctly.
+PI_ONLINE_TIMEOUT = float(os.environ.get("PI_ONLINE_TIMEOUT", "15"))
 
 
 class MqttStore:
@@ -26,6 +30,7 @@ class MqttStore:
         self.state = {}
         self.plan = {}
         self.simulated = {}
+        self.overrides = {}
         self.events = deque(maxlen=EVENT_LIMIT)
         self.connected = False
         self.client = None
@@ -59,6 +64,7 @@ class MqttStore:
         client.subscribe(topics.EVENTS_WILDCARD)
         client.subscribe(topics.STATE_SIMULATED)
         client.subscribe(topics.STATE_ACTUATORS)
+        client.subscribe(topics.OVERRIDE_SENSORS)
 
     def _on_disconnect(self, client, userdata, rc):
         self.connected = False
@@ -76,10 +82,16 @@ class MqttStore:
                 self.plan = payload
             elif topic == topics.STATE_SIMULATED:
                 self.simulated = payload
+            elif topic == topics.OVERRIDE_SENSORS:
+                self.overrides = payload.get("values", {}) or {}
             elif topic == topics.STATE_ACTUATORS:
                 self.state.setdefault("actuators", {})
                 self.state["actuators"].update(
-                    {"relay": payload.get("relay"), "led": payload.get("led")}
+                    {
+                        "relay": payload.get("relay"),
+                        "led": payload.get("led"),
+                        "buzzer": payload.get("buzzer"),
+                    }
                 )
             elif topic.startswith("sensors/"):
                 sensor_id = topics.sensor_id_from_topic(topic)
@@ -90,20 +102,34 @@ class MqttStore:
                     {"topic": topic, "payload": payload, "received": time.time()}
                 )
 
-    def publish(self, topic, payload):
+    def publish(self, topic, payload, retain=False):
         if self.client is None:
             return False
-        self.client.publish(topic, json.dumps(payload))
+        self.client.publish(topic, json.dumps(payload), retain=retain)
         return True
 
     def snapshot(self):
         with self.lock:
+            last_seen = max(
+                (
+                    p.get("ts", 0)
+                    for p in self.sensors.values()
+                    if isinstance(p.get("ts"), (int, float))
+                ),
+                default=None,
+            )
+            pi_online = (
+                last_seen is not None and (time.time() - last_seen) < PI_ONLINE_TIMEOUT
+            )
             return {
                 "connected": self.connected,
+                "pi_online": pi_online,
+                "pi_last_seen": last_seen,
                 "sensors": dict(self.sensors),
                 "state": dict(self.state),
                 "plan": dict(self.plan),
                 "simulated": dict(self.simulated),
+                "overrides": dict(self.overrides),
                 "events": list(self.events),
             }
 

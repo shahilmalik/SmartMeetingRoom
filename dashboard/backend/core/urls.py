@@ -12,5 +12,7 @@ urlpatterns = [
     path("commands/relay/", views.relay_command),
     path("commands/led/", views.led_command),
     path("commands/simulated/", views.simulated_command),
+    path("commands/test/", views.test_command),
+    path("commands/sensor-override/", views.sensor_override),
     path("commands/manual-override/", views.manual_override),
 ]

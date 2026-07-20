@@ -11,6 +11,14 @@ export interface SensorReading {
 export interface Actuators {
   relay?: number;
   led?: number;
+  buzzer?: number;
+}
+
+export interface HealthFactor {
+  label: string;
+  delta: number;
+  ok: boolean;
+  detail: string;
 }
 
 export interface RoomState {
@@ -22,9 +30,12 @@ export interface RoomState {
   light?: number | null;
   noise?: number | null;
   co2?: number | null;
+  daylight?: boolean;
   actuators?: Actuators;
   breaches?: string[];
   health?: number;
+  health_factors?: HealthFactor[];
+  noise_high?: boolean;
   comfortable?: boolean;
   light_status?: string;
 }
@@ -51,6 +62,7 @@ export interface Simulated {
   ac?: string;
   blinds?: number;
   socket?: string;
+  socket_mode?: "manual" | "auto";
 }
 
 export interface EventEntry {
@@ -59,11 +71,16 @@ export interface EventEntry {
   received: number;
 }
 
+export type SensorOverrides = Record<string, number>;
+
 export interface Overview {
   connected: boolean;
+  pi_online?: boolean;
+  pi_last_seen?: number | null;
   sensors: Record<string, SensorReading>;
   state: RoomState;
   plan: Plan;
   simulated: Simulated;
+  overrides: SensorOverrides;
   events: EventEntry[];
 }

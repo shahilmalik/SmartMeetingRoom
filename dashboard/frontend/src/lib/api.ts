@@ -1,4 +1,4 @@
-import { Overview } from "./types";
+import { Overview, SensorOverrides } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
 
@@ -42,9 +42,23 @@ export function sendSimulated(
   });
 }
 
+export function testActuator(target: "led" | "buzzer", duration = 2) {
+  return request("/commands/test/", {
+    method: "POST",
+    body: JSON.stringify({ target, duration }),
+  });
+}
+
 export function sendManualOverride(reason: string) {
   return request("/commands/manual-override/", {
     method: "POST",
     body: JSON.stringify({ reason }),
+  });
+}
+
+export function sendSensorOverrides(values: SensorOverrides) {
+  return request("/commands/sensor-override/", {
+    method: "POST",
+    body: JSON.stringify({ values }),
   });
 }

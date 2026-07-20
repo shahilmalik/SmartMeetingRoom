@@ -10,6 +10,7 @@ interface Props {
 export default function RoomVisual({ actuators, simulated }: Props) {
   const led = actuators.led ?? 0;
   const relay = actuators.relay ?? 0;
+  const buzzer = actuators.buzzer ?? 0;
   const ac = simulated.ac ?? "off";
   const blinds = simulated.blinds ?? 0;
   const socket = simulated.socket ?? "off";
@@ -17,13 +18,13 @@ export default function RoomVisual({ actuators, simulated }: Props) {
   const tiles = [
     {
       glyph: "💡",
-      name: "LED Lights",
-      st: led > 0 ? `${Math.round((led / 255) * 100)}%` : "Off",
-      on: led > 0,
+      name: "Room Light (Plugwise)",
+      st: socket === "on" ? "On" : "Off",
+      on: socket === "on",
     },
     {
       glyph: "🌀",
-      name: "Relay (Fan/Heater)",
+      name: "Fan / Heater",
       st: relay ? "On" : "Off",
       on: Boolean(relay),
     },
@@ -40,10 +41,16 @@ export default function RoomVisual({ actuators, simulated }: Props) {
       on: blinds > 0,
     },
     {
-      glyph: "🔌",
-      name: "Smart Socket",
-      st: socket === "on" ? "Powered" : "Off",
-      on: socket === "on",
+      glyph: "🔆",
+      name: "Noise LED",
+      st: led > 0 ? "Blinking" : "Off",
+      on: led > 0,
+    },
+    {
+      glyph: "🔔",
+      name: "Health Buzzer",
+      st: buzzer ? "Alarm" : "Off",
+      on: Boolean(buzzer),
     },
   ];
 

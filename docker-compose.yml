@@ -8,3 +8,102 @@ services:
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     restart: unless-stopped
+
+  backend:
+    build: .
+    container_name: smr-backend
+    command: python dashboard/backend/manage.py runserver 0.0.0.0:8000
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  frontend:
+    build: ./dashboard/frontend
+    container_name: smr-frontend
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000/api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./dashboard/frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Simulated IoT node — NOT started by default. The real node runs on the
+  # Raspberry Pi (see iot_node/iot-node.service) and publishes real sensor
+  # data. Only for broker-less demos: docker compose --profile sim up iot-node
+  iot-node:
+    build: .
+    container_name: smr-iot-node
+    command: python -m iot_node.main
+    profiles: ["sim"]
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - IOT_SIMULATION=1
+    volumes:
+      - .:/app
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  state-manager:
+    build: .
+    container_name: smr-state-manager
+    command: python -m state_manager.main
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+    volumes:
+      - .:/app
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  problem-generator:
+    build: .
+    container_name: smr-problem-generator
+    command: python -m problem_generator.main
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+    volumes:
+      - .:/app
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  planner:
+    build: .
+    container_name: smr-planner
+    command: python -m planner.main
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+    volumes:
+      - .:/app
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  executor:
+    build: .
+    container_name: smr-executor
+    command: python -m executor.main
+    environment:
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+    volumes:
+      - .:/app
+    depends_on:
+      - mosquitto
+    restart: unless-stopped

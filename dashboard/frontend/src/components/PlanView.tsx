@@ -8,18 +8,28 @@ const ACTION_ICONS: Record<string, string> = {
   "cool-room": "❄️",
   "stop-cooling": "🌡️",
   "heat-room": "🔥",
-  "brighten-lights": "💡",
-  "dim-lights": "🔅",
-  "turn-off-lights": "🌑",
-  "open-blinds": "🪟",
+  "open-blinds-for-daylight": "🪟",
+  "close-blinds-for-cooling": "🧱",
   "close-blinds": "🧱",
-  "power-up-device": "🔌",
-  "power-down-device": "⚡",
+  "turn-on-lamp-night": "💡",
+  "turn-on-lamp-hot": "💡",
+  "turn-off-lamp": "🌑",
   "achieve-comfort": "✅",
   "achieve-energy-saving": "🍃",
 };
 
+const ACTION_LABELS: Record<string, string> = {
+  "open-blinds-for-daylight": "Open Blinds · daylight",
+  "close-blinds-for-cooling": "Close Blinds · block heat",
+  "turn-on-lamp-night": "Room Lamp On · night",
+  "turn-on-lamp-hot": "Room Lamp On · blinds shut",
+  "turn-off-lamp": "Room Lamp Off",
+  ventilate: "Ventilate · clear CO₂",
+  "heat-room": "Heat Room",
+};
+
 function describe(action: string): string {
+  if (ACTION_LABELS[action]) return ACTION_LABELS[action];
   return action.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

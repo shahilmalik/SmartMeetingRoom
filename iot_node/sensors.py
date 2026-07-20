@@ -1,50 +1,32 @@
-import json
 import os
-import subprocess
-import sys
 import time
 
 from . import hardware
 
-OCCUPANCY_DISTANCE_CM = 50
 LIGHT_MAX = 1023.0
 SOUND_MAX = 1023.0
-READ_TIMEOUT = int(os.environ.get("SENSOR_TIMEOUT", "5"))
 
-_READER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_reader.py")
+# Occupancy is a deliberate "hand near the sensor" gesture, not a room sweep.
+# Inside the demo box another device sits ~4 cm in front of the sensor, so the
+# idle reading is a steady 4. Occupied therefore requires something CLOSER
+# than that obstruction — a hand pressed right against the sensor:
+#   - become OCCUPIED only when the distance drops to NEAR cm or less,
+#   - become EMPTY again once it is back at FAR cm or more (the idle reading),
+#   - hold the previous state in between (no flicker on a noisy reading).
+# If the box is ever rearranged so the sensor has a clear view, relax these
+# via OCCUPANCY_NEAR_CM / OCCUPANCY_FAR_CM in iot-node.service.
+OCCUPANCY_NEAR_CM = float(os.environ.get("OCCUPANCY_NEAR_CM", "3"))
+OCCUPANCY_FAR_CM = float(os.environ.get("OCCUPANCY_FAR_CM", "4"))
+# Back-compat alias (some tooling still references this name).
+OCCUPANCY_DISTANCE_CM = OCCUPANCY_NEAR_CM
+
+_occ_state = {"occupied": False}
 
 
 def _read_via_subprocess(call, default):
-    if hardware.SIMULATION:
-        try:
-            return eval(call, {"__builtins__": {}}, _sim_ctx())
-        except Exception:
-            return default
-    try:
-        result = subprocess.run(
-            [sys.executable, _READER_SCRIPT, call],
-            capture_output=True, text=True, timeout=READ_TIMEOUT,
-            env={**os.environ, "PYTHONPATH": ":".join([
-                "/home/shahilmalik",
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            ])}
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return json.loads(result.stdout.strip())
-        if result.stderr.strip():
-            print(f"[sensors] {call}: {result.stderr.strip()}", file=sys.stderr, flush=True)
-        return default
-    except subprocess.TimeoutExpired:
-        print(f"[sensors] TIMEOUT({READ_TIMEOUT}s): {call} - bus may be wedged", file=sys.stderr, flush=True)
-        return default
-    except Exception as e:
-        print(f"[sensors] ERROR {call}: {e}", file=sys.stderr, flush=True)
-        return default
-
-
-def _sim_ctx():
-    from . import hardware as hw
-    return {"hw": hw}
+    # Real hardware reads share the serialized bus path with writes so a read
+    # and an indicator write never bit-bang the software-I2C bus at once.
+    return hardware.bus_call(call, default)
 
 
 class CO2Model:
@@ -58,7 +40,7 @@ class CO2Model:
         self.value += amount
         self._spike_until = time.time() + duration
 
-    def update(self, occupied):
+    def update(self, occupied, ventilating=False):
         now = time.time()
         dt = now - self._last
         self._last = now
@@ -68,6 +50,9 @@ class CO2Model:
             self.value -= 5.0 * dt
         if now < self._spike_until:
             self.value += 4.0 * dt
+        if ventilating:
+            # Fresh-air fan clears CO2 quickly.
+            self.value -= 20.0 * dt
         self.value = max(self.baseline, min(3000.0, self.value))
         return round(self.value, 1)
 
@@ -127,13 +112,26 @@ def read_button():
 
 
 def read_occupancy():
+    """Strict, debounced hand-detection. Returns (occupied, distance).
+    A single bad/out-of-range reading never flips the state — it holds the
+    previous value — so the demo stays stable despite ultrasonic jitter."""
     distance = read_distance()
-    occupied = distance is not None and distance <= OCCUPANCY_DISTANCE_CM
+    prev = _occ_state["occupied"]
+    if distance is None or distance <= 0:
+        # Sensor glitch / no echo — keep whatever we had.
+        return prev, distance
+    if distance <= OCCUPANCY_NEAR_CM:
+        occupied = True
+    elif distance >= OCCUPANCY_FAR_CM:
+        occupied = False
+    else:
+        occupied = prev  # inside the hysteresis band → hold
+    _occ_state["occupied"] = occupied
     return occupied, distance
 
 
-def read_co2(occupied):
-    return _co2.update(occupied)
+def read_co2(occupied, ventilating=False):
+    return _co2.update(occupied, ventilating=ventilating)
 
 
 def spike_co2():

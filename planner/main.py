@@ -15,18 +15,22 @@ FAST_DOWNWARD = os.environ.get("FAST_DOWNWARD", "fast-downward.py")
 SEARCH_ALIAS = os.environ.get("FD_ALIAS", "lama-first")
 
 ACTION_TO_ACTUATOR = {
+    # Air quality + heating → fan/heater (logical "relay" actuator; no physical
+    # relay is wired, so the executor/iot_node just track its state)
     "ventilate": {"actuator": "relay", "state": "on"},
     "heat-room": {"actuator": "relay", "state": "on"},
     "stop-ventilation": {"actuator": "relay", "state": "off"},
+    # Cooling → simulated AC
     "cool-room": {"actuator": "ac", "state": "cooling"},
     "stop-cooling": {"actuator": "ac", "state": "off"},
-    "brighten-lights": {"actuator": "led", "brightness": 220},
-    "dim-lights": {"actuator": "led", "brightness": 80},
-    "turn-off-lights": {"actuator": "led", "brightness": 0},
-    "open-blinds": {"actuator": "blinds", "position": 100},
+    # Blinds → daylight + solar-heat management
+    "open-blinds-for-daylight": {"actuator": "blinds", "position": 100},
+    "close-blinds-for-cooling": {"actuator": "blinds", "position": 0},
     "close-blinds": {"actuator": "blinds", "position": 0},
-    "power-up-device": {"actuator": "socket", "state": "on"},
-    "power-down-device": {"actuator": "socket", "state": "off"},
+    # Room lamp → Plugwise socket (physical lamp, switched via the bridge)
+    "turn-on-lamp-night": {"actuator": "socket", "state": "on"},
+    "turn-on-lamp-hot": {"actuator": "socket", "state": "on"},
+    "turn-off-lamp": {"actuator": "socket", "state": "off"},
 }
 
 
@@ -107,33 +111,53 @@ class Planner:
         def has(fact):
             return fact in facts
 
+        # ── Empty room → shut everything off ────────────────────────────
         if "energy-saving" in goals:
-            if has("lights-on"):
-                plan.append("turn-off-lights")
-            if has("ventilation-on"):
+            if has("lamp-on"):
+                plan.append("turn-off-lamp")
+            if has("fan-on"):
                 plan.append("stop-ventilation")
             if has("ac-cooling"):
                 plan.append("stop-cooling")
-            if has("device-powered"):
-                plan.append("power-down-device")
             if has("blinds-open"):
                 plan.append("close-blinds")
             plan.append("achieve-energy-saving")
             return plan
 
+        # ── Occupied room → comfort & productivity ──────────────────────
+        # Air quality: fan clears CO2
         if has("co2-high"):
             plan.append("ventilate")
+
+        # Temperature: block solar heat (close blinds) BEFORE cooling.
         if has("temp-hot"):
+            if has("blinds-open"):
+                plan.append("close-blinds-for-cooling")
             plan.append("cool-room")
+        elif has("ac-cooling") and has("temp-comfortable"):
             plan.append("stop-cooling")
+
         if has("temp-cold"):
             plan.append("heat-room")
-        if has("lights-off") or has("lights-dim"):
-            plan.append("brighten-lights")
-        if has("device-off"):
-            plan.append("power-up-device")
-        if has("blinds-closed"):
-            plan.append("open-blinds")
+
+        # Lighting: only act when the room is actually dark.
+        # Prefer FREE daylight (open blinds) when it's daytime and not hot;
+        # otherwise fall back to the lamp.
+        if has("ambient-dark"):
+            opened_blinds = False
+            if (
+                has("blinds-closed")
+                and has("daylight-available")
+                and not has("temp-hot")
+            ):
+                plan.append("open-blinds-for-daylight")
+                opened_blinds = True
+            if not opened_blinds and has("lamp-off"):
+                if has("temp-hot"):
+                    plan.append("turn-on-lamp-hot")
+                else:
+                    plan.append("turn-on-lamp-night")
+
         plan.append("achieve-comfort")
         return plan
 
