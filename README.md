@@ -6,6 +6,8 @@ A smart meeting room that continuously monitors its environment (occupancy, temp
 - **Empty →** energy-saving state.
 - **Replanning triggers:** occupancy change, sensor threshold breach, periodic 60s tick, manual override from the dashboard.
 
+![Circuit setup](annotated_setup.png)
+
 ## Architecture
 
 ```
